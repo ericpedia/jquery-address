@@ -1,4 +1,4 @@
-/*! jQuery Address v${version} | (c) 2009, 2013 Rostislav Hristov | jquery.org/license */
+/*! jQuery Address v1.6 | (c) 2009, 2013 Rostislav Hristov | jquery.org/license */
 (function ($) {
 
     $.address = (function () {
@@ -49,8 +49,7 @@
             },
             _window = function() {
                 try {
-                    return top.document !== UNDEFINED && top.document.title !== UNDEFINED && top.jQuery !== UNDEFINED && 
-                        top.jQuery.address !== UNDEFINED && top.jQuery.address.frames() !== false ? top : window;
+                    return top.document !== UNDEFINED && top.document.title !== UNDEFINED ? top : window;
                 } catch (e) { 
                     return window;
                 }
@@ -95,19 +94,12 @@
                                 .replace(/\/\//, '/').replace(/^\/$/, '');
                     if ($.isFunction(fn)) {
                         fn(value);
-                    } else {
-                      if ($.isFunction(_t.urchinTracker)) {
+                    } else if ($.isFunction(_t.urchinTracker)) {
                         _t.urchinTracker(value);
-                      }
-                      if (_t.pageTracker !== UNDEFINED && $.isFunction(_t.pageTracker._trackPageview)) {
-                          _t.pageTracker._trackPageview(value);
-                      }
-                      if (_t._gaq !== UNDEFINED && $.isFunction(_t._gaq.push)) {
-                          _t._gaq.push(['_trackPageview', decodeURI(value)]);
-                      }
-                      if ($.isFunction(_t.ga)) {
-                          _t.ga('send', 'pageview', value);
-                      }
+                    } else if (_t.pageTracker !== UNDEFINED && $.isFunction(_t.pageTracker._trackPageview)) {
+                        _t.pageTracker._trackPageview(value);
+                    } else if (_t._gaq !== UNDEFINED && $.isFunction(_t._gaq.push)) {
+                        _t._gaq.push(['_trackPageview', decodeURI(value)]);
                     }
                 }
             },
@@ -271,13 +263,12 @@
                 autoUpdate: TRUE, 
                 history: TRUE, 
                 strict: TRUE,
-                frames: TRUE,
                 wrap: FALSE
             },
             _browser = _detectBrowser(),
             _version = parseFloat(_browser.version),
             _webkit = _browser.webkit || _browser.safari,
-            _msie = _browser.msie,
+            _msie = !$.support.opacity,
             _t = _window(),
             _d = _t.document,
             _h = _t.history, 
@@ -393,14 +384,6 @@
                 }
                 return _opts.state;
             },
-            frames: function(value) {
-                if (value !== UNDEFINED) {
-                    _opts.frames = value;
-                    _t = _window();
-                    return this;
-                }
-                return _opts.frames;
-            },            
             strict: function(value) {
                 if (value !== UNDEFINED) {
                     _opts.strict = value;
@@ -518,6 +501,8 @@
             },
             parameter: function(name, value, append) {
                 var i, params;
+
+                // if we're setting a value
                 if (value !== UNDEFINED) {
                     var names = this.parameterNames();
                     params = [];
@@ -542,6 +527,8 @@
                     this.queryString(params.join('&'));
                     return this;
                 }
+
+                // if we're getting a value
                 value = this.queryString();
                 if (value) {
                     var r = [];
@@ -556,6 +543,44 @@
                         return r.length != 1 ? r : r[0];
                     }
                 }
+            },
+            parameters: function(obj, merge) {
+                var parameterNames = this.parameterNames(),
+                    merge = (merge === UNDEFINED) ? true : merge;
+                
+                // When used as a getter, return the parameters object
+                if (obj === UNDEFINED) {
+                    var parameters = {};
+                    for (var i = 0, l = parameterNames.length; i < l; i++) {
+                        parameters[parameterNames[i]] = this.parameter(parameterNames[i]);
+                    }
+                    return parameters;
+                }
+
+                // When used as a setter, merge or replace the object
+                // Temporarily turn off autoUpdate so we don't trigger multiple updates
+                var initialAutoUpdate = _opts.autoUpdate;
+                this.autoUpdate(false);
+                
+                if (!merge) {
+                    for (var i = 0, l = parameterNames.length; i < l; i++) {
+                        this.parameter(parameterNames[i], null);
+                    }
+                }
+
+                for (var index in obj) { 
+                   if (obj.hasOwnProperty(index)) {
+                       this.parameter(index, obj[index]);
+                   }
+                }
+
+                // Restore autoUpdate and trigger update
+                if ( initialAutoUpdate ) {
+                	this.update();
+	                this.autoUpdate(true);
+                }
+
+                return this;
             },
             parameterNames: function() {
                 var qs = this.queryString(),
@@ -583,34 +608,32 @@
     })();
     
     $.fn.address = function(fn) {
-        $(this).each(function(index) {
-            if (!$(this).data('address')) {
-                $(this).on('click', function(e) {
-                    if (e.shiftKey || e.ctrlKey || e.metaKey || e.which == 2) {
-                        return true;
-                    }
-                    var target = e.currentTarget;
-                    if ($(target).is('a')) {
-                        e.preventDefault();
-                        var value = fn ? fn.call(target) : 
-                            /address:/.test($(target).attr('rel')) ? $(target).attr('rel').split('address:')[1].split(' ')[0] : 
-                            $.address.state() !== undefined && !/^\/?$/.test($.address.state()) ? 
-                                    $(target).attr('href').replace(new RegExp('^(.*' + $.address.state() + '|\\.)'), '') : 
-                                    $(target).attr('href').replace(/^(#\!?|\.)/, '');
-                        $.address.value(value);
-                    }
-                }).on('submit', function(e) {
-                    var target = e.currentTarget;
-                    if ($(target).is('form')) {
-                        e.preventDefault();
-                        var action = $(target).attr('action'),
-                            value = fn ? fn.call(target) : (action.indexOf('?') != -1 ? action.replace(/&$/, '') : action + '?') + 
-                                $(target).serialize();
-                        $.address.value(value);
-                    }
-                }).data('address', true);
-            }
-        });
+        if (!this.data('address')) {
+            this.on('click', function(e) {
+                if (e.shiftKey || e.ctrlKey || e.metaKey || e.which == 2) {
+                    return true;
+                }
+                var target = e.currentTarget;
+                if ($(target).is('a')) {
+                    e.preventDefault();
+                    var value = fn ? fn.call(target) : 
+                        /address:/.test($(target).attr('rel')) ? $(target).attr('rel').split('address:')[1].split(' ')[0] : 
+                        $.address.state() !== undefined && !/^\/?$/.test($.address.state()) ? 
+                                $(target).attr('href').replace(new RegExp('^(.*' + $.address.state() + '|\\.)'), '') : 
+                                $(target).attr('href').replace(/^(#\!?|\.)/, '');
+                    $.address.value(value);
+                }
+            }).on('submit', function(e) {
+                var target = e.currentTarget;
+                if ($(target).is('form')) {
+                    e.preventDefault();
+                    var action = $(target).attr('action'),
+                        value = fn ? fn.call(target) : (action.indexOf('?') != -1 ? action.replace(/&$/, '') : action + '?') + 
+                            $(target).serialize();
+                    $.address.value(value);
+                }
+            }).data('address', true);
+        }
         return this;
     };
     
